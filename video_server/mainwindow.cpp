@@ -82,7 +82,7 @@ void MainWindow::decode_tcp_data(QByteArray array)
     if(array.contains(header)){
         //获取到数据头
         header_index = array.indexOf(header);
-        qDebug() << array.at(header_index + 4);
+        //qDebug() << array.at(header_index + 4);
         switch (array.at(header_index + 4)) {
         case ROS_UP:
             qDebug() << "UP";
@@ -106,6 +106,20 @@ void MainWindow::decode_tcp_data(QByteArray array)
             break;
         default:
             break;
+        }
+    }
+    header.clear();
+    header.append(0xEE);
+    header.append(0xEE);
+    header.append(0xEE);
+    header.append(0xEE);
+
+    if(array.contains(header)){
+        //获取到数据头
+        header_index = array.indexOf(header);
+        qDebug() << array.at(header_index + 4);
+        if (array.at(header_index + 4) == GET_FRAME) {
+            on_next_frame();
         }
     }
 }
@@ -132,7 +146,7 @@ void MainWindow::sendMessage()
     connect(tcp_client,SIGNAL(readyRead()),this,SLOT(readMesage()));
     connect(tcp_client,SIGNAL(disconnected()),tcp_client,SLOT(deleteLater()));
     connect(tcp_client,SIGNAL(disconnected()),this,SLOT(on_disconnected()));
-    timer->start();//开始传输视频数据
+    //timer->start();//开始传输视频数据
 }
 
 void MainWindow::readMesage()
@@ -159,14 +173,18 @@ void MainWindow::cam_open()
         qDebug() << "open cap success";
         capture.set(CV_CAP_PROP_FPS, 30);
         rate= capture.get(CV_CAP_PROP_FPS);
+        qDebug() << "FPS:" << rate;
+
+        capture.set(CV_CAP_PROP_FRAME_WIDTH, 640);//宽度
+        capture.set(CV_CAP_PROP_FRAME_HEIGHT, 480);//高度
+
         capture >> frame;
         if (!frame.empty())
         {
             qDebug() << "get cap";
             timer = new QTimer(this);
-
             timer->setInterval(1000/rate);   //set timer match with FPS
-            connect(timer, SIGNAL(timeout()), this, SLOT(on_next_frame()));
+            //connect(timer, SIGNAL(timeout()), this, SLOT(on_next_frame()));
             timer->stop();
         }
     } else {
@@ -178,7 +196,7 @@ void MainWindow::on_next_frame()
 {
     QDateTime current_date_time = QDateTime::currentDateTime();
     QString current_date = current_date_time.toString("yyyy-MM-dd hh:mm:ss.zzz");
-    //qDebug() << current_date;
+    qDebug() << current_date;
     capture >> frame;
     cvtColor(frame,frame,CV_BGR2RGB);
 
@@ -186,24 +204,36 @@ void MainWindow::on_next_frame()
     QBuffer buf(&byte);
     QImage image((unsigned const char*)frame.data,frame.cols,frame.rows,QImage::Format_RGB888);
     image.save(&buf,"JPEG");
+    //qDebug() << "压缩前数据大小:" << byte.size();
     QByteArray ss=qCompress(byte,1);
     QByteArray vv=ss.toBase64();
+    //qDebug() << "压缩后数据大小:" << ss.size();
+    //qDebug() << "压缩后数据大小:" << vv.size();
 
     //qDebug() << vv.length();
-    QByteArray len;
-    len.append(0xAA);
-    len.append(0xAA);
-    len.append(0xAA);
-    len.append(0xAA);
-   // qDebug() << QString::number(vv.length(), 16);
-    len.append(QString::number(vv.length(), 16));
-    len.append(0xBB);
-    len.append(0xBB);
-    len.append(0xBB);
-    len.append(0xBB);
+    QByteArray header;
+    QByteArray tail;
+    header.append(0xAA);
+    header.append(0xAA);
+    header.append(0xAA);
+    header.append(0xAA);
+    header.append(0xAA);
+    header.append(0xAA);
+    header.append(0xAA);
+    header.append(0xAA);
 
-    tcp_client->write(len);
+    tail.append(0xBB);
+    tail.append(0xBB);
+    tail.append(0xBB);
+    tail.append(0xBB);
+    tail.append(0xBB);
+    tail.append(0xBB);
+    tail.append(0xBB);
+    tail.append(0xBB);
+
+    tcp_client->write(header);
     tcp_client->write(vv);
+    tcp_client->write(tail);
 
     ui->label_image->setPixmap(QPixmap::fromImage(image));
     ui->label_image->resize(image.size());

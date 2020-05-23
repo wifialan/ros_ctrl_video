@@ -21,7 +21,7 @@
 using namespace cv;
 
 #define     LOCAL_PORT      8388
-
+#define     GET_FRAME       0x09
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
