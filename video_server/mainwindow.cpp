@@ -11,6 +11,7 @@ MainWindow::MainWindow(QWidget *parent)
     this->local_port = LOCAL_PORT;
     this->local_ip = "192.168.0.105";//get_localhost_ip();
     //socket_connect();
+    camrea_open = false;
     cam_open();
     tcpServer=new QTcpServer(this);
     if(!tcpServer->listen(QHostAddress::Any,8989))
@@ -142,7 +143,9 @@ void MainWindow::sendMessage()
     //获取已经建立的连接的套接字
     tcp_client = tcpServer->nextPendingConnection();
     qDebug() << "connect client:";
-    qDebug() << tcp_client->peerAddress().toString().split("::ffff:")[1] << ":" << tcp_client->peerPort();
+    qDebug() << tcp_client->peerAddress().toString();
+    qDebug() << tcp_client->peerAddress().toString() << ":" << tcp_client->peerPort();
+    //qDebug() << tcp_client->peerAddress().toString().split("::ffff:")[1] << ":" << tcp_client->peerPort();
     connect(tcp_client,SIGNAL(readyRead()),this,SLOT(readMesage()));
     connect(tcp_client,SIGNAL(disconnected()),tcp_client,SLOT(deleteLater()));
     connect(tcp_client,SIGNAL(disconnected()),this,SLOT(on_disconnected()));
@@ -162,6 +165,7 @@ void MainWindow::readMesage()
 
 void MainWindow::cam_open()
 {
+
     qDebug() << "start cap";
     if (capture.isOpened()){
         capture.release();     //decide if capture is already opened; if so,close it
@@ -170,7 +174,10 @@ void MainWindow::cam_open()
     qDebug() << "open cap";
     if (capture.isOpened())
     {
+        int fourcc = vw.fourcc('M','J','P','G');
+        camrea_open = true;
         qDebug() << "open cap success";
+        capture.set(CAP_PROP_FOURCC,fourcc);
         capture.set(CV_CAP_PROP_FPS, 30);
         rate= capture.get(CV_CAP_PROP_FPS);
         qDebug() << "FPS:" << rate;
@@ -188,6 +195,7 @@ void MainWindow::cam_open()
             timer->stop();
         }
     } else {
+        camrea_open = false;
         qDebug() << "open cap failed";
     }
 }
@@ -197,46 +205,68 @@ void MainWindow::on_next_frame()
     QDateTime current_date_time = QDateTime::currentDateTime();
     QString current_date = current_date_time.toString("yyyy-MM-dd hh:mm:ss.zzz");
     qDebug() << current_date;
-    capture >> frame;
-    cvtColor(frame,frame,CV_BGR2RGB);
+    if (!capture.isOpened()){
+        capture.open(0);     //decide if capture is already opened; if so,close it
+        int fourcc = vw.fourcc('M','J','P','G');
+        camrea_open = true;
+        qDebug() << "open cap success";
+        capture.set(CAP_PROP_FOURCC,fourcc);
+        capture.set(CV_CAP_PROP_FPS, 30);
+        rate= capture.get(CV_CAP_PROP_FPS);
+        qDebug() << "FPS:" << rate;
 
-    QByteArray byte;
-    QBuffer buf(&byte);
-    QImage image((unsigned const char*)frame.data,frame.cols,frame.rows,QImage::Format_RGB888);
-    image.save(&buf,"JPEG");
-    //qDebug() << "压缩前数据大小:" << byte.size();
-    QByteArray ss=qCompress(byte,1);
-    QByteArray vv=ss.toBase64();
-    //qDebug() << "压缩后数据大小:" << ss.size();
-    //qDebug() << "压缩后数据大小:" << vv.size();
+        capture.set(CV_CAP_PROP_FRAME_WIDTH, 640);//宽度
+        capture.set(CV_CAP_PROP_FRAME_HEIGHT, 480);//高度
+    }
+    //capture.open(0);           //open the default camera
+    //qDebug() << "open cap";
 
-    //qDebug() << vv.length();
-    QByteArray header;
-    QByteArray tail;
-    header.append(0xAA);
-    header.append(0xAA);
-    header.append(0xAA);
-    header.append(0xAA);
-    header.append(0xAA);
-    header.append(0xAA);
-    header.append(0xAA);
-    header.append(0xAA);
+    if(capture.isOpened())
+    {
+        capture >> frame;
+        cvtColor(frame,frame,CV_BGR2RGB);
 
-    tail.append(0xBB);
-    tail.append(0xBB);
-    tail.append(0xBB);
-    tail.append(0xBB);
-    tail.append(0xBB);
-    tail.append(0xBB);
-    tail.append(0xBB);
-    tail.append(0xBB);
+        QByteArray byte;
+        QBuffer buf(&byte);
+        QImage image((unsigned const char*)frame.data,frame.cols,frame.rows,QImage::Format_RGB888);
+        image.save(&buf,"JPEG");
+        //qDebug() << "压缩前数据大小:" << byte.size();
+        QByteArray ss=qCompress(byte,1);
+        QByteArray vv=ss.toBase64();
+        //qDebug() << "压缩后数据大小:" << ss.size();
+        //qDebug() << "压缩后数据大小:" << vv.size();
 
-    tcp_client->write(header);
-    tcp_client->write(vv);
-    tcp_client->write(tail);
+        //qDebug() << vv.length();
+        QByteArray header;
+        QByteArray tail;
+        header.append(0xAA);
+        header.append(0xAA);
+        header.append(0xAA);
+        header.append(0xAA);
+        header.append(0xAA);
+        header.append(0xAA);
+        header.append(0xAA);
+        header.append(0xAA);
 
-    ui->label_image->setPixmap(QPixmap::fromImage(image));
-    ui->label_image->resize(image.size());
+        tail.append(0xBB);
+        tail.append(0xBB);
+        tail.append(0xBB);
+        tail.append(0xBB);
+        tail.append(0xBB);
+        tail.append(0xBB);
+        tail.append(0xBB);
+        tail.append(0xBB);
+
+        tcp_client->write(header);
+        tcp_client->write(vv);
+        tcp_client->write(tail);
+
+        ui->label_image->setPixmap(QPixmap::fromImage(image));
+        ui->label_image->resize(image.size());
+        //capture.release();
+    }else{
+        qDebug() << "Camera is not open";
+    }
 }
 
 void MainWindow::on_disconnected()

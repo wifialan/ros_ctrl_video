@@ -44,10 +44,12 @@ private:
     QString     local_ip;
     quint16     local_port;
     VideoCapture    capture;
+    VideoWriter     vw;
     double          rate; //FPS
     Mat             frame;
     QTimer          *timer;
     Ros             *ros;
+    bool            camrea_open;
 
 private:
     QString     get_localhost_ip();
